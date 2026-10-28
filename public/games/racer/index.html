@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Speed Highway Racer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #020617;
+      color: #f8fafc;
+      font-family: system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      touch-action: none;
+      padding: 12px;
+    }
+    .hud {
+      width: 100%;
+      max-width: 360px;
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      font-weight: 700;
+      font-size: 14px;
+    }
+    .hud span { color: #38bdf8; }
+    #racer-box {
+      position: relative;
+      width: 100%;
+      max-width: 360px;
+      height: 480px;
+      background: #1e293b;
+      border: 2px solid #38bdf8;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 0 25px rgba(56, 189, 248, 0.2);
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    #game-over {
+      position: absolute;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.88);
+      backdrop-filter: blur(4px);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+    }
+    .btn {
+      background: #0284c7;
+      color: white;
+      border: none;
+      padding: 10px 24px;
+      border-radius: 6px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .btn:hover { background: #38bdf8; }
+    .hint {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #64748b;
+    }
+  </style>
+</head>
+<body>
+  <div class="hud">
+    <div>SPEED: <span id="speed">120</span> MPH</div>
+    <div>SCORE: <span id="score">0</span></div>
+  </div>
+
+  <div id="racer-box">
+    <canvas id="racer-canvas" width="360" height="480"></canvas>
+    <div id="game-over">
+      <h2 style="font-size: 32px; color: #ef4444;">WRECKED!</h2>
+      <p style="color:#cbd5e1">Score: <span id="final-score">0</span></p>
+      <button class="btn" onclick="start()">DRIVE AGAIN</button>
+    </div>
+  </div>
+
+  <div class="hint">Left/Right or A/D to steer, Up/W for Nitro boost!</div>
+
+  <script>
+    const canvas = document.getElementById('racer-canvas');
+    const ctx = canvas.getContext('2d');
+    const speedEl = document.getElementById('speed');
+    const scoreEl = document.getElementById('score');
+    const gameOverEl = document.getElementById('game-over');
+    const finalScoreEl = document.getElementById('final-score');
+
+    let audioCtx = null;
+    function beep(freq, dur) {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.frequency.value = freq;
+        g.gain.value = 0.08;
+        g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+        o.connect(g);
+        g.connect(audioCtx.destination);
+        o.start();
+        o.stop(audioCtx.currentTime + dur);
+      } catch(e) {}
+    }
+
+    const LANES = [80, 140, 200, 260];
+    let player = { x: 140, y: 380, w: 32, h: 60, lane: 1 };
+    let traffic = [];
+    let roadOffset = 0;
+    let score = 0;
+    let speed = 7;
+    let nitro = false;
+    let isPlaying = false;
+    let keys = {};
+
+    function start() {
+      gameOverEl.style.display = 'none';
+      player.x = LANES[1] + 4;
+      player.lane = 1;
+      traffic = [];
+      score = 0;
+      speed = 7;
+      roadOffset = 0;
+      isPlaying = true;
+    }
+
+    window.addEventListener('keydown', e => {
+      const k = e.key.toLowerCase();
+      keys[k] = true;
+      if (k === 'arrowleft' || k === 'a') {
+        if (player.lane > 0) {
+          player.lane--;
+          player.x = LANES[player.lane] + 4;
+          beep(320, 0.05);
+        }
+      }
+      if (k === 'arrowright' || k === 'd') {
+        if (player.lane < 3) {
+          player.lane++;
+          player.x = LANES[player.lane] + 4;
+          beep(320, 0.05);
+        }
+      }
+    });
+    window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+    canvas.addEventListener('pointerdown', e => {
+      const rect = canvas.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      if (clickX < canvas.width / 2) {
+        if (player.lane > 0) { player.lane--; player.x = LANES[player.lane] + 4; }
+      } else {
+        if (player.lane < 3) { player.lane++; player.x = LANES[player.lane] + 4; }
+      }
+    });
+
+    function spawnCar() {
+      const lane = Math.floor(Math.random() * 4);
+      const colors = ['#ef4444', '#eab308', '#a855f7', '#10b981'];
+      traffic.push({
+        x: LANES[lane] + 4,
+        y: -70,
+        w: 32,
+        h: 58,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        speed: 3 + Math.random() * 2
+      });
+    }
+
+    function update() {
+      if (!isPlaying) return;
+
+      nitro = keys['arrowup'] || keys['w'];
+      const currentSpeed = nitro ? speed * 1.5 : speed;
+      roadOffset = (roadOffset + currentSpeed) % 40;
+
+      speedEl.textContent = Math.floor(currentSpeed * 15);
+      score += Math.floor(currentSpeed / 4);
+      scoreEl.textContent = score;
+
+      // Spawn traffic cars
+      if (Math.random() < 0.035 && traffic.length < 5) {
+        spawnCar();
+      }
+
+      // Move traffic
+      for (let i = 0; i < traffic.length; i++) {
+        const car = traffic[i];
+        car.y += (currentSpeed - car.speed);
+
+        // Collision box
+        if (
+          player.x < car.x + car.w - 4 &&
+          player.x + player.w > car.x + 4 &&
+          player.y < car.y + car.h - 4 &&
+          player.y + player.h > car.y + 4
+        ) {
+          endGame();
+          return;
+        }
+      }
+
+      traffic = traffic.filter(c => c.y < canvas.height + 80);
+    }
+
+    function endGame() {
+      isPlaying = false;
+      beep(150, 0.3);
+      finalScoreEl.textContent = score;
+      gameOverEl.style.display = 'flex';
+    }
+
+    function drawCar(x, y, color, isPlayer = false) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.roundRect(x, y, 32, 58, 6);
+      ctx.fill();
+
+      // Windshield
+      ctx.fillStyle = isPlayer ? '#38bdf8' : '#0f172a';
+      ctx.fillRect(x + 4, isPlayer ? y + 14 : y + 34, 24, 12);
+
+      // Headlights / taillights
+      ctx.fillStyle = isPlayer ? '#fef08a' : '#ef4444';
+      ctx.fillRect(x + 3, y + (isPlayer ? 2 : 54), 6, 3);
+      ctx.fillRect(x + 23, y + (isPlayer ? 2 : 54), 6, 3);
+    }
+
+    function draw() {
+      // Road
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Shoulder grass
+      ctx.fillStyle = '#15803d';
+      ctx.fillRect(0, 0, 60, canvas.height);
+      ctx.fillRect(canvas.width - 60, 0, 60, canvas.height);
+
+      // Road curbs
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(58, 0, 4, canvas.height);
+      ctx.fillRect(canvas.width - 62, 0, 4, canvas.height);
+
+      // Lane dividers
+      ctx.strokeStyle = '#eab308';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([20, 20]);
+      ctx.lineDashOffset = -roadOffset;
+
+      [130, 190, 250].forEach(lx => {
+        ctx.beginPath();
+        ctx.moveTo(lx, 0);
+        ctx.lineTo(lx, canvas.height);
+        ctx.stroke();
+      });
+      ctx.setLineDash([]);
+
+      // Draw traffic
+      traffic.forEach(c => drawCar(c.x, c.y, c.color));
+
+      // Draw player car
+      drawCar(player.x, player.y, nitro ? '#06b6d4' : '#3b82f6', true);
+
+      // Nitro exhaust glow
+      if (nitro) {
+        ctx.fillStyle = '#f97316';
+        ctx.fillRect(player.x + 8, player.y + 58, 6, 12);
+        ctx.fillRect(player.x + 18, player.y + 58, 6, 12);
+      }
+
+      update();
+      requestAnimationFrame(draw);
+    }
+
+    start();
+    requestAnimationFrame(draw);
+  </script>
+</body>
+</html>

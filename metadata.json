@@ -1,0 +1,6 @@
+{
+  "name": "Nova Arcade - Unblocked Games",
+  "description": "Fast, unblocked browser games portal with instant iframe playback, fullscreen, tab cloaking, and zero lag.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
